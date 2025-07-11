@@ -1,28 +1,16 @@
-name: Build & Deploy Spring Boot via Docker
+name: Deploy React App via Docker
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: 17
-          distribution: temurin
-
-      - name: Build Spring Boot JAR
-        run: |
-          chmod +x ./mvnw
-          ./mvnw clean package --no-transfer-progress
 
       - name: Build Docker image
         run: docker build -t hello-springboot .
@@ -30,105 +18,44 @@ jobs:
       - name: Save Docker image to tar
         run: docker save hello-springboot -o hello-springboot.tar
 
-      # ──── Secure SSH Setup ────
-      - name: Configure SSH
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          # Properly format SSH key with newlines
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" | sed 's/\\n/\n/g' > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          # Add host to known_hosts
-          ssh-keyscan ${{ secrets.HOST }} >> ~/.ssh/known_hosts
-          # Verify setup
-          echo "SSH configuration:"
-          ls -la ~/.ssh
-          ssh-keygen -y -f ~/.ssh/id_rsa > /dev/null && echo "✅ Valid SSH key" || echo "❌ Invalid SSH key"
-
       - name: Copy image to EC2 via SCP
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
-          key_path: ~/.ssh/id_rsa
-          source: "hello-springboot.tar"
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "react-app.tar"
           target: "/home/${{ secrets.USERNAME }}/"
-          strip_components: true
+          tar_dereference: false
+          strip_components: false
           overwrite: true
+          rm: false
 
-      - name: Install Docker & run container on EC2
-        uses: appleboy/ssh-action@v0.1.4
+      - name: Install Docker and Deploy on EC2
+        uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
-          key_path: ~/.ssh/id_rsa
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            set -e
-            echo "Current user: $(whoami)"
-            echo "Home directory: $HOME"
-
-            # ──── DEBUG: Check SSH Key Access ────
-            echo "Checking SSH key access:"
-            ls -la ~/.ssh/id_rsa
-            ssh-keygen -y -f ~/.ssh/id_rsa > /dev/null && echo "SSH key is valid" || echo "SSH key is INVALID"
-
-            #  ──── 1) Install Docker if missing ────
-            if ! command -v docker &>/dev/null; then
-              echo "Installing Docker…"
-              # Determine OS and install Docker
-              if [ -f /etc/debian_version ]; then
-                sudo apt-get update -y
-                sudo apt-get install -y docker.io
-              else
-                sudo yum update -y
-                sudo amazon-linux-extras install docker -y
-              fi
-  
-              # Start and enable Docker service
-              sudo systemctl enable --now docker
-              sudo usermod -aG docker $USER
-  
-              # Apply group changes immediately
-              newgrp docker << EONG
-              echo "Docker installed. Continuing deployment..."
-              # Continue script in new shell with updated group
-              $0 $*
-            EONG
-              exit 0  # Exit current shell after spawning new one
+            # Install Docker if it's not present
+            if ! command -v docker &> /dev/null; then
+              echo "Installing Docker..."
+              sudo apt update
+              sudo apt install -y docker.io
+              sudo systemctl enable docker
+              sudo systemctl start docker
             fi
 
-            # ──── 2) Verify file transfer ────
-            cd /home/$USER
-            echo "Files in directory:"
-            ls -lh
-            echo "File size: $(du -h hello-springboot.tar || echo 'File not found')"
+            cd /home/${{ secrets.USERNAME }}
 
-             # ──── 3) Load image & (re)run container ────
-             echo "Loading Docker image..."
-             sudo docker load -i hello-springboot.tar
+            echo "Loading Docker image..."
+            ls -lh react-app.tar
+            sudo docker load -i react-app.tar
 
-             echo "Existing Docker images:"
-             sudo docker images | grep hello-springboot || echo "Image not loaded"
+            echo "Stopping existing container if running..."
+            sudo docker stop react-app || true
+            sudo docker rm react-app || true
 
-             echo "Stopping existing container..."
-             sudo docker stop hello-springboot || echo "No container to stop"
-
-             echo "Removing existing container..."
-             sudo docker rm hello-springboot || echo "No container to remove"
-
-             echo "Starting new container..."
-             sudo docker run -d \
-               --name hello-springboot \
-               -p 8080:8080 \
-               hello-springboot
-
-             # ──── 4) Verify deployment ────
-             echo "✅ Spring Boot app deployed on port 8080"
-             echo "Container status:"
-             sudo docker ps -a | grep hello-springboot
-
-             echo "Container logs (last 20 lines):"
-             sudo docker logs hello-springboot --tail 20 || echo "No logs available yet"
-
-             echo "Container health:"
-             sudo docker inspect hello-springboot | jq -r '.[0].State.Health.Status' || echo "Health check not configured"
+            echo "Running new React container..."
+            sudo docker run -d -p 8080:8080 --name hello-springboot hello-springboot
