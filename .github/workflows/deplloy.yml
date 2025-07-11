@@ -62,9 +62,9 @@ jobs:
       - name: SSH‑Deploy on EC2
         uses: appleboy/ssh-action@v0.1.4
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -e
 
@@ -85,7 +85,7 @@ jobs:
             fi
 
             # 2) Build image & (re)run container
-            cd /home/${{ secrets.EC2_USER }}/app
+            cd /home/${{ secrets.USERNAME }}/app
             CONTAINER=hello-springboot
             IMAGE=$CONTAINER:latest
 
