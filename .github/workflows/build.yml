@@ -1,0 +1,15 @@
+# hello-springboot/.github/workflows/build.yml
+name: Build and Deploy Hello Spring Boot
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  call-java-workflow:
+    uses: nirajan-devops/ci-workflows/.github/workflows/java.yml@main
+    with:
+      docker_build: true
+    
