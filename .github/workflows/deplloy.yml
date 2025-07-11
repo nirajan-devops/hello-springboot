@@ -30,53 +30,52 @@ jobs:
       - name: Save Docker image to tar
         run: docker save hello-springboot -o hello-springboot.tar
 
-      # ──── FIXED SSH KEY HANDLING ────
-      - name: Setup SSH key and known_hosts
+      # ──── Secure SSH Setup ────
+      - name: Configure SSH
         run: |
-          # Create .ssh directory with proper permissions
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          
-          # Write private key with proper newline formatting
+          # Properly format SSH key with newlines
           echo "${{ secrets.SSH_PRIVATE_KEY }}" | sed 's/\\n/\n/g' > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          
-          # Add server to known_hosts
+          # Add host to known_hosts
           ssh-keyscan ${{ secrets.HOST }} >> ~/.ssh/known_hosts
-          
-          # Verify key formatting
-          echo "SSH key content:"
-          head -n 3 ~/.ssh/id_rsa
-          echo "Known hosts:"
-          cat ~/.ssh/known_hosts
+          # Verify setup
+          echo "SSH configuration:"
+          ls -la ~/.ssh
+          ssh-keygen -y -f ~/.ssh/id_rsa > /dev/null && echo "✅ Valid SSH key" || echo "❌ Invalid SSH key"
 
-      # ──── SCP TRANSFER ────
       - name: Copy image to EC2 via SCP
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}  # Use key directly
+          key_path: ~/.ssh/id_rsa
           source: "hello-springboot.tar"
           target: "/home/${{ secrets.USERNAME }}/"
           strip_components: true
           overwrite: true
 
-      # ──── DEPLOYMENT ────
       - name: Install Docker & run container on EC2
         uses: appleboy/ssh-action@v0.1.4
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}  # Use key directly
+          key_path: ~/.ssh/id_rsa
           script: |
             set -e
             echo "Current user: $(whoami)"
             echo "Home directory: $HOME"
-            
-            # 1) Install Docker if missing
+
+            # ──── DEBUG: Check SSH Key Access ────
+            echo "Checking SSH key access:"
+            ls -la ~/.ssh/id_rsa
+            ssh-keygen -y -f ~/.ssh/id_rsa > /dev/null && echo "SSH key is valid" || echo "SSH key is INVALID"
+
+            #  ──── 1) Install Docker if missing ────
             if ! command -v docker &>/dev/null; then
               echo "Installing Docker…"
+              # Determine OS and install Docker
               if [ -f /etc/debian_version ]; then
                 sudo apt-get update -y
                 sudo apt-get install -y docker.io
@@ -84,32 +83,52 @@ jobs:
                 sudo yum update -y
                 sudo amazon-linux-extras install docker -y
               fi
+  
+              # Start and enable Docker service
               sudo systemctl enable --now docker
               sudo usermod -aG docker $USER
-              # Apply group changes without logout
-              exec sg docker -c "$0 $*"
+  
+              # Apply group changes immediately
+              newgrp docker << EONG
+              echo "Docker installed. Continuing deployment..."
+              # Continue script in new shell with updated group
+              $0 $*
+            EONG
+              exit 0  # Exit current shell after spawning new one
             fi
 
-            # 2) Verify file transfer
-            cd /home/${{ secrets.USERNAME }}
+            # ──── 2) Verify file transfer ────
+            cd /home/$USER
             echo "Files in directory:"
             ls -lh
-            echo "File size: $(du -h hello-springboot.tar)"
-            
-            # 3) Load image & (re)run container
-            sudo docker load -i hello-springboot.tar
-            sudo docker images | grep hello-springboot
-            
-            sudo docker stop hello-springboot || true
-            sudo docker rm hello-springboot || true
+            echo "File size: $(du -h hello-springboot.tar || echo 'File not found')"
 
-            sudo docker run -d \
-              --name hello-springboot \
-              -p 8080:8080 \
-              hello-springboot
+             # ──── 3) Load image & (re)run container ────
+             echo "Loading Docker image..."
+             sudo docker load -i hello-springboot.tar
 
-            # 4) Verify deployment
-            echo "✅ Spring Boot app deployed on port 8080"
-            sudo docker ps -a | grep hello-springboot
-            echo "Container logs:"
-            sudo docker logs hello-springboot --tail 20
+             echo "Existing Docker images:"
+             sudo docker images | grep hello-springboot || echo "Image not loaded"
+
+             echo "Stopping existing container..."
+             sudo docker stop hello-springboot || echo "No container to stop"
+
+             echo "Removing existing container..."
+             sudo docker rm hello-springboot || echo "No container to remove"
+
+             echo "Starting new container..."
+             sudo docker run -d \
+               --name hello-springboot \
+               -p 8080:8080 \
+               hello-springboot
+
+             # ──── 4) Verify deployment ────
+             echo "✅ Spring Boot app deployed on port 8080"
+             echo "Container status:"
+             sudo docker ps -a | grep hello-springboot
+
+             echo "Container logs (last 20 lines):"
+             sudo docker logs hello-springboot --tail 20 || echo "No logs available yet"
+
+             echo "Container health:"
+             sudo docker inspect hello-springboot | jq -r '.[0].State.Health.Status' || echo "Health check not configured"
