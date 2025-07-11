@@ -1,4 +1,4 @@
-# hello-springboot/.github/workflows/deploy.yml
+## hello-springboot/.github/workflows/deploy.yml
 name: Build & Deploy to AWS EC2
 
 on:
