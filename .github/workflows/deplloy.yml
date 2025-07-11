@@ -24,7 +24,7 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "react-app.tar"
+          source: "hello-springboot.tar"
           target: "/home/${{ secrets.USERNAME }}/"
           tar_dereference: false
           strip_components: false
@@ -50,12 +50,12 @@ jobs:
             cd /home/${{ secrets.USERNAME }}
 
             echo "Loading Docker image..."
-            ls -lh react-app.tar
-            sudo docker load -i react-app.tar
+            ls -lh hello-springboot.tar
+            sudo docker load -i hello-springboot.tar
 
             echo "Stopping existing container if running..."
-            sudo docker stop react-app || true
-            sudo docker rm react-app || true
+            sudo docker stop hello-springboot || true
+            sudo docker rm hello-springboot || true
 
-            echo "Running new React container..."
+            echo "Running new hello-springboot container..."
             sudo docker run -d -p 8080:8080 --name hello-springboot hello-springboot
