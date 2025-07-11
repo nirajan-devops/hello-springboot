@@ -64,7 +64,7 @@ jobs:
           target:   "/home/${{ secrets.USERNAME }}/app"
 
       # SSH and deploy
-      - name: SSH‑Deploy on EC2
+      - name: SSH-Deploy on EC2
         uses: appleboy/ssh-action@v0.1.4
         with:
           host:     ${{ secrets.HOST }}
