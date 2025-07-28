@@ -6,7 +6,7 @@ on:
 
 jobs:
   deploy:
-    uses: nirajan-devops/ci-workflows/.github/workflows/cicd.yml@main
+    uses: nirajan-devops/ci-workflows/.github/workflows/cinew.yml@main
     with:
       image-name: javahello-app
       container-name: javahello-app
